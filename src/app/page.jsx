@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const PROGRAMAS_DATOS = {
@@ -103,12 +103,54 @@ export default function Home() {
   const [asesor, setAsesor] = useState('Carlos Garzon');
   const [campaña, setCampaña] = useState('');
   const [tabInversion, setTabInversion] = useState('lista');
+  const [tipoPlanSeleccionado, setTipoPlanSeleccionado] = useState('descuento');
+  
+  // Estado para la previsualización modal de la liquidación PDF
+  const [mostrarModalLiquidacion, setMostrarModalLiquidacion] = useState(false);
+  const documentoRef = useRef(null);
 
   const prog = PROGRAMAS_DATOS[progKey];
 
+  // Cálculo de liquidación automática ajustada al formato oficial PI-GA-FT-036
+  const calcularValoresLiquidacion = () => {
+    let pensionBase = prog.esIA ? 1401576 : 1427532;
+    let descPct = 0;
+
+    if (tipoPlanSeleccionado === 'descuento') {
+      if (prog.esSST) descPct = 0.30;
+      else descPct = 0.20;
+    }
+
+    const pensionCalculada = Math.round(pensionBase * (1 - descPct));
+    const carnet = 38200;
+    const seguro = 13236;
+    
+    const cuota1Pasion = Math.round(pensionCalculada * 0.30);
+    const cuota2Pasion = Math.round(pensionCalculada * 0.40);
+    const cuota3Pasion = Math.round(pensionCalculada * 0.30);
+
+    const baseEstudio = cuota1Pasion + carnet + seguro;
+    const estudioCredito = Math.round(baseEstudio * 0.02447);
+
+    const totalInicialMatricula = cuota1Pasion + carnet + seguro + estudioCredito;
+
+    return {
+      pensionCalculada,
+      carnet,
+      seguro,
+      estudioCredito,
+      cuota1Pasion,
+      cuota2Pasion,
+      cuota3Pasion,
+      totalInicialMatricula
+    };
+  };
+
+  const liquidacion = calcularValoresLiquidacion();
+
   const [formData, setFormData] = useState({
     nombres: '',
-    tipoDoc: 'Cédula de Ciudadanía',
+    tipoDoc: 'Cédula de Ciudadanía (C.C.)',
     fechaNacimiento: '',
     documento: '',
     idField: '',
@@ -144,20 +186,28 @@ export default function Home() {
     obsequio: 'Inscripción 100% Gratuita'
   });
 
+  const aplicarValorLiquidadoEnFormulario = () => {
+    setFormData(prev => ({
+      ...prev,
+      valorPagar: `$${liquidacion.totalInicialMatricula.toLocaleString('es-CO')}`
+    }));
+  };
+
   const construirTextoProceso = () => {
     const infoAsesorCampaña = [asesor || '---', campaña ? `${campaña}` : ''].filter(Boolean).join(' - ');
 
     return `PROCESO DE MATRICULA - ${infoAsesorCampaña}
 Nombre:    ${formData.nombres || '---'}
-Cédula:   ${formData.documento || '---'}
 ID:   ${formData.idField || '---'}
+Tipo de documento: ${formData.tipoDoc || '---'}
+Cédula / Documento:   ${formData.documento || '---'}
 Celular:  ${formData.celular || '---'}
 Correo: ${formData.correo || '---'}
 Ciudad:   ${formData.ciudad || '---'}
 Sede:  ${formData.sede}
 Programa:    ${prog.nombre}
 Jornada:  ${formData.jornada}
-Valor a pagar Matricula:    ${formData.valorPagar || '---'}
+Valor a pagar Matricula:    ${formData.valorPagar || `$${liquidacion.totalInicialMatricula.toLocaleString('es-CO')}`}
 Fecha de pago:  ${formData.fechaPago || '---'}
 Medio de pago: ${formData.medioPago}
 Electiva:  ${formData.electiva || '---'}
@@ -174,13 +224,13 @@ Programa de Interés: ${prog.nombreLargo}
 ========================================
 
 --- DATOS DEL ASPIRANTE ---
-1. Nombre Completo: ${formData.nombres || '---'}
-2. Tipo de Documento: ${formData.tipoDoc || '---'}
-3. Fecha de Nacimiento: ${formData.fechaNacimiento || '---'}
-4. Número de Documento: ${formData.documento || '---'}
 ID: ${formData.idField || '---'}
-5. Fecha de Expedición: ${formData.fechaExpedicion || '---'}
-6. Municipio de Expedición: ${formData.lugarExpedicion || '---'}
+1. Nombre Completo: ${formData.nombres || '---'}
+2. Tipo de documento: ${formData.tipoDoc || '---'}
+3. Número de Documento: ${formData.documento || '---'}
+4. Fecha de Expedición: ${formData.fechaExpedicion || '---'}
+5. Municipio de Expedición: ${formData.lugarExpedicion || '---'}
+6. Fecha de Nacimiento: ${formData.fechaNacimiento || '---'}
 7. Correo Electrónico: ${formData.correo || '---'}
 8. Celular: ${formData.celular || '---'}
 9. Dirección y Barrio: ${formData.direccion || '---'}
@@ -205,7 +255,7 @@ Gastos Mensuales: ${formData.gastosMensuales || '---'}
 --- DATOS DE PAGO Y CIERRE (PROCESO CANTADO) ---
 Ciudad: ${formData.ciudad || '---'}
 Sede / Jornada: ${formData.sede} / ${formData.jornada}
-Valor a Pagar Matrícula: ${formData.valorPagar || '---'}
+Valor a Pagar Matrícula: ${formData.valorPagar || `$${liquidacion.totalInicialMatricula.toLocaleString('es-CO')}`}
 Fecha de Pago: ${formData.fechaPago || '---'}
 Medio de Pago: ${formData.medioPago}
 Obsequio: ${formData.obsequio}`;
@@ -216,12 +266,17 @@ Obsequio: ${formData.obsequio}`;
     alert('¡Proceso cantado copiado al portapapeles!');
   };
 
+  const descargarPDFLiquidacion = () => {
+    window.print();
+  };
+
   const descargarBlockDeNotas = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     const payload = {
       ...formData,
+      valorPagar: formData.valorPagar || `$${liquidacion.totalInicialMatricula.toLocaleString('es-CO')}`,
       programa_interes: prog.nombreLargo,
       asesor: asesor,
       campaña: campaña,
@@ -248,7 +303,7 @@ Obsequio: ${formData.obsequio}`;
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    alert('¡Datos completos del aspirante, crédito y proceso descargados como Block de Notas!');
+    alert('¡Datos completos del aspirante, crédito y proceso descargados como Block de Notas y guardados en Supabase[cite: 8]!');
   };
 
   return (
@@ -307,7 +362,7 @@ Obsequio: ${formData.obsequio}`;
       {/* Estructura Principal en Columnas */}
       <main className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* COLUMNA 1: Guión Comercial y Módulo de Inversión y Costos */}
+        {/* COLUMNA 1: Guión Comercial y Módulo de Inversión y Costos / Liquidación */}
         <section className="lg:col-span-5 bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl space-y-4 text-xs overflow-y-auto max-h-[850px] pr-2">
           <h2 className="text-base font-bold text-blue-400 flex items-center gap-2 border-b border-slate-700 pb-2">
             ℹ️ Guión & Módulo de Inversión y Costos
@@ -363,10 +418,10 @@ Obsequio: ${formData.obsequio}`;
             </div>
           </div>
 
-          {/* MÓDULO DE INVERSIÓN Y COSTOS CON PESTAÑAS */}
+          {/* MÓDULO DE INVERSIÓN Y COSTOS CON PESTAÑAS & LIQUIDACIÓN AUTOMATIZADA */}
           <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700 space-y-3">
             <span className="text-emerald-400 font-bold block text-[11px] uppercase border-b border-slate-800 pb-1">
-              💰 Inversión y Costos
+              💰 Inversión, Costos y Simulador de Liquidación (PI-GA-FT-036)[cite: 8]
             </span>
 
             {/* Pestañas de Navegación */}
@@ -387,7 +442,7 @@ Obsequio: ${formData.obsequio}`;
                 onClick={() => setTabInversion('plan30')}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition whitespace-nowrap ${tabInversion === 'plan30' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
               >
-                Planes Con Descuento (30-40-30)
+                Planes Con Descuento
               </button>
             </div>
 
@@ -399,13 +454,13 @@ Obsequio: ${formData.obsequio}`;
                   {prog.esIA ? (
                     <p>Para el programa Solución de Datos con IA: La inversión regular por periodo con todos los conceptos (Pensión de $1.401.576 + inscripción de $149.000 + carnet de $38.200 + seguro de $13.236) es de <strong className="text-white">$1.602.012</strong>.</p>
                   ) : (
-                    <p>Para los otros 8 Programas (Logística, Administrativa, Analítica, Comercio, Desarrollo, Financiera, Mercadeo, SST): La inversión regular por periodo con todos los conceptos (Pensión de $1.427.532 + inscripción de $149.000 + carnet de $38.200 + seguro de $13.236) es de <strong className="text-white">$1.627.968</strong>.</p>
+                    <p>Para los otros 8 Programas: La inversión regular por periodo con todos los conceptos (Pensión de $1.427.532 + inscripción de $149.000 + carnet de $38.200 + seguro de $13.236) es de <strong className="text-white">$1.627.968</strong>.</p>
                   )}
                 </div>
 
                 <div className="bg-slate-800/80 p-2.5 rounded-lg border border-emerald-500/40 space-y-1">
                   <span className="text-emerald-400 font-bold text-[10px] uppercase block">Paso B: Descontando la Inscripción</span>
-                  <p>Pero, como estamos en proceso de cierre inmediato y quiero apoyarte para que inicies ya, el día de hoy <strong>te voy a obsequiar el 100% del formulario de inscripción</strong> (te ahorras $149.000).</p>
+                  <p>Pero, como estamos en proceso de cierre inmediato y quiero apoyarte para que inicies ya, el día de hoy <strong>te voy a obsequiar el 100% del formulario de inscripción</strong> (te ahorras $149.000)[cite: 8].</p>
                   {prog.esIA ? (
                     <p className="text-white font-bold mt-1">Para el programa Solución de Datos con IA: $1.453.012</p>
                   ) : (
@@ -424,87 +479,90 @@ Obsequio: ${formData.obsequio}`;
                     <span className="text-blue-400 font-bold text-[10px] uppercase block mb-1">Programa Tecnólogo en Solución de Datos con IA</span>
                     <ul className="list-disc list-inside space-y-1">
                       <li>Pensión del Ciclo Regular: $1.401.576.</li>
-                      <li>Formulario de Inscripción: $149.000 (Obsequiado al 100%).</li>
-                      <li><strong>Pago Inicial (Cuota 1 - 30% + Conceptos de Carné y Seguro + Estudio de Crédito de $34.339):</strong> $506.247 (Pago el día de hoy para formalizar la matrícula).</li>
-                      <li><strong>Segunda Cuota (4 de Noviembre de 2026 - 40% de la Pensión):</strong> $560.630.</li>
-                      <li><strong>Tercera Cuota (3 de Diciembre de 2026 - 30% de la Pensión):</strong> $420.473.</li>
+                      <li>Formulario de Inscripción: $149.000 (Obsequiado al 100%)[cite: 8].</li>
+                      <li><strong>Pago Inicial (Cuota 1 - 30% + Carné + Seguro + Estudio de Crédito):</strong> $506.247.</li>
+                      <li><strong>Segunda Cuota (40% de la Pensión):</strong> $560.630.</li>
+                      <li><strong>Tercera Cuota (30% de la Pensión):</strong> $420.473.</li>
                     </ul>
                   </div>
                 ) : (
                   <div className="bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/50">
                     <span className="text-blue-400 font-bold text-[10px] uppercase block mb-1">Programas Virtuales Estándar</span>
-                    <p className="text-[10px] text-slate-400 mb-2">(Aplica para: Gestión Administrativa, Analítica y Big Data, Comercio Exterior, Desarrollo de Software, Gestión Financiera, Logística Internacional, Mercadeo, SST, Producción de Video, Animación Gráfica, Ciberseguridad y Capital Humano).</p>
                     <ul className="list-disc list-inside space-y-1">
                       <li>Pensión del Ciclo Regular: $1.427.532.</li>
-                      <li>Formulario de Inscripción: $149.000 (Obsequiado al 100% como incentivo de cierre).</li>
-                      <li><strong>Pago Inicial (Cuota 1 - 30% + Conceptos de Carné y Seguro + Estudio de Crédito de $34.975):</strong> $514.670 (Pago el día de hoy para formalizar la matrícula).</li>
-                      <li><strong>Segunda Cuota (4 de Noviembre de 2026 - 40% de la Pensión):</strong> $571.013.</li>
-                      <li><strong>Tercera Cuota (3 de Diciembre de 2026 - 30% de la Pensión):</strong> $428.260.</li>
+                      <li>Formulario de Inscripción: $149.000 (Obsequiado al 100%)[cite: 8].</li>
+                      <li><strong>Pago Inicial (Cuota 1 - 30% + Carné + Seguro + Estudio de Crédito):</strong> $514.670.</li>
+                      <li><strong>Segunda Cuota (40% de la Pensión):</strong> $571.013.</li>
+                      <li><strong>Tercera Cuota (30% de la Pensión):</strong> $428.260.</li>
                     </ul>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Contenido Pestaña 3: Planes con Descuento (30-40-30) */}
+            {/* Contenido Pestaña 3: Planes con Descuento */}
             {tabInversion === 'plan30' && (
               <div className="space-y-3 text-slate-200 text-[11px] animate-fadeIn">
                 {prog.esSST && (
                   <div className="bg-slate-800/80 p-2.5 rounded-lg border border-emerald-500/40 space-y-1">
-                    <span className="text-emerald-400 font-bold text-[10px] uppercase block">1. Plan 30-40-30 con el 30% de Descuento (Especial para SST)</span>
-                    <p>Aplicado de manera exclusiva para la Tecnología en Gestión de la Seguridad y Salud en el Trabajo (SST).</p>
-                    <p><strong>Pensión Regular con Descuento del 30%:</strong> $999.272 (Ahorro de $428.260 sobre la tarifa de lista de $1.427.532).</p>
-                    <p><strong>Valor de Contado (Sin Formulario):</strong> $1.050.708 (Pensión con descuento + carné de $38.200 + seguro estudiantil de $13.236; inscripción obsequiada de cortesía).</p>
-                    <div className="mt-1 pt-1 border-t border-slate-700">
-                      <span className="font-bold text-slate-300 block">Distribución del Plan de Pagos Diferido (0% Interés):</span>
-                      <ul className="list-disc list-inside">
-                        <li><strong>Pago Inicial (Cuota 1 - 30% de la pensión + Carné + Seguro + Estudio de Crédito de $24.482):</strong> $375.700 (Pago para formalizar e iniciar clases).</li>
-                        <li><strong>Segunda Cuota (4 de Noviembre de 2026 - 40% de la pensión):</strong> $399.709.</li>
-                        <li><strong>Tercera Cuota (3 de Diciembre de 2026 - 30% de la pensión):</strong> $299.782.</li>
-                      </ul>
-                    </div>
+                    <span className="text-emerald-400 font-bold text-[10px] uppercase block">Plan 30% de Descuento (Especial para SST)</span>
+                    <p><strong>Pensión Regular con Descuento del 30%:</strong> $999.272.</p>
+                    <p><strong>Pago Inicial (Cuota 1 + Carné + Seguro + Estudio de Crédito):</strong> $375.700.</p>
                   </div>
                 )}
-
-                {prog.esIA && (
-                  <div className="bg-slate-800/80 p-2.5 rounded-lg border border-blue-500/40 space-y-1">
-                    <span className="text-blue-400 font-bold text-[10px] uppercase block">2. Plan 30-40-30 con el 20% de Descuento (Para Solución de Datos con IA)</span>
-                    <p>Aplicado de manera específica para la Tecnología en Solución de Datos con Inteligencia Artificial (IA).</p>
-                    <p><strong>Pensión Regular con Descuento del 20%:</strong> $1.121.261 (Ahorro de $280.315 sobre la tarifa de lista de $1.401.576).</p>
-                    <p><strong>Valor de Contado (Sin Formulario):</strong> $1.172.697 (Pensión con descuento + carné de $38.200 + seguro estudiantil de $13.236; inscripción obsequiada).</p>
-                    <div className="mt-1 pt-1 border-t border-slate-700">
-                      <span className="font-bold text-slate-300 block">Distribución del Plan de Pagos Diferido (0% Interés):</span>
-                      <ul className="list-disc list-inside">
-                        <li><strong>Pago Inicial (Cuota 1 - 30% de la pensión + Carné + Seguro + Estudio de Crédito de $27.471):</strong> $415.285 (Pago para formalizar).</li>
-                        <li><strong>Segunda Cuota (4 de Noviembre de 2026 - 40% de la pensión):</strong> $448.504.</li>
-                        <li><strong>Tercera Cuota (3 de Diciembre de 2026 - 30% de la pensión):</strong> $336.378.</li>
-                      </ul>
-                    </div>
-                  </div>
-                )}
-
-                {!prog.esSST && !prog.esIA && (
+                {!prog.esSST && (
                   <div className="bg-slate-800/80 p-2.5 rounded-lg border border-purple-500/40 space-y-1">
-                    <span className="text-purple-400 font-bold text-[10px] uppercase block">3. Plan 30-40-30 con el 20% de Descuento (Para los demás 10 Programas)</span>
-                    <p>Aplicado para los programas tradicionales de la institución (Administrativa, Analítica y Big Data, Comercio Exterior, Desarrollo de Software, Gestión Financiera, Logística Internacional, Mercadeo, Producción de Video, Animación Gráfica, Ciberseguridad y Capital Humano).</p>
-                    <p><strong>Pensión Regular con Descuento del 20%:</strong> $1.142.026 (Ahorro de $285.506 sobre la tarifa de lista de $1.427.532).</p>
-                    <p><strong>Valor de Contado (Sin Formulario):</strong> $1.193.462 (Pensión con descuento + carné de $38.200 + seguro estudiantil de $13.236; inscripción obsequiada).</p>
-                    <div className="mt-1 pt-1 border-t border-slate-700">
-                      <span className="font-bold text-slate-300 block">Distribución del Plan de Pagos Diferido (0% Interés):</span>
-                      <ul className="list-disc list-inside">
-                        <li><strong>Pago Inicial (Cuota 1 - 30% de la pensión + Carné + Seguro + Estudio de Crédito de $27.980):</strong> $422.023.</li>
-                        <li><strong>Segunda Cuota (4 de Noviembre de 2026 - 40% de la pensión):</strong> $456.810.</li>
-                        <li><strong>Tercera Cuota (3 de Diciembre de 2026 - 30% de la pensión):</strong> $342.608.</li>
-                      </ul>
-                    </div>
+                    <span className="text-purple-400 font-bold text-[10px] uppercase block">Plan 20% de Descuento</span>
+                    <p><strong>Pensión Regular con Descuento del 20%:</strong> ${Math.round((prog.esIA ? 1401576 : 1427532) * 0.8).toLocaleString('es-CO')}.</p>
                   </div>
                 )}
               </div>
             )}
+
+            {/* WIDGET DE LIQUIDACIÓN AUTOMATIZADA */}
+            <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-emerald-400 font-bold text-[10px] uppercase">⚡ Simulador de Liquidación Rápida</span>
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => setTipoPlanSeleccionado('estandar')}
+                    className={`px-2 py-0.5 rounded text-[9px] font-bold ${tipoPlanSeleccionado === 'estandar' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                  >
+                    Estándar
+                  </button>
+                  <button 
+                    onClick={() => setTipoPlanSeleccionado('descuento')}
+                    className={`px-2 py-0.5 rounded text-[9px] font-bold ${tipoPlanSeleccionado === 'descuento' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                  >
+                    {prog.esSST ? 'Desc. 30%' : 'Desc. 20%'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-800 p-2.5 rounded border border-blue-500/30 space-y-1 text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Pensión Periodo:</span>
+                  <span className="font-bold text-white">${liquidacion.pensionCalculada.toLocaleString('es-CO')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Total 1er Pago (Matrícula + Gastos):</span>
+                  <span className="font-bold text-emerald-400">${liquidacion.totalInicialMatricula.toLocaleString('es-CO')}</span>
+                </div>
+              </div>
+
+              <button 
+                type="button"
+                onClick={aplicarValorLiquidadoEnFormulario}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 rounded-lg transition text-[10px] uppercase"
+              >
+                ⚡ Cargar este valor liquidado en el Formulario
+              </button>
+            </div>
+
           </div>
         </section>
 
-        {/* COLUMNA 2: Formulario Limpio con el Módulo de Crédito */}
+        {/* COLUMNA 2: Formulario del Aspirante y Módulo de Crédito */}
         <section className="lg:col-span-4 bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl space-y-4 overflow-y-auto max-h-[850px]">
           <h2 className="text-base font-bold text-white flex items-center gap-2 border-b border-slate-700 pb-2">
             📝 Datos del Aspirante
@@ -512,110 +570,110 @@ Obsequio: ${formData.obsequio}`;
 
           <form onSubmit={descargarBlockDeNotas} className="space-y-4 text-xs">
             
-            {/* CAMPOS 1 AL 16 */}
+            {/* CAMPOS REORGANIZADOS SEGÚN SOLICITUD */}
             <div className="space-y-2 bg-slate-900/60 p-3 rounded-xl border border-slate-700/50">
               <span className="text-blue-400 font-bold uppercase text-[10px] block mb-2">FORMULARIO DE MATRÍCULA 📋</span>
 
-              {/* 1. Nombre Completo */}
-              <div className="mb-2">
-                <label className="block text-slate-400 mb-1">1. Nombre Completo: *</label>
-                <input required type="text" placeholder="Ingrese nombre completo" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
-              </div>
-
-              {/* 2. Tipo: Cedula */}
-              <div className="mb-2">
-                <label className="block text-slate-400 mb-1">2. Tipo:</label>
-                <input type="text" value={formData.tipoDoc} onChange={e => setFormData({...formData, tipoDoc: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
-              </div>
-
-              {/* 3. Fecha de nacimiento */}
-              <div className="mb-2">
-                <label className="block text-slate-400 mb-1">3. Fecha de nacimiento:</label>
-                <input type="date" value={formData.fechaNacimiento} onChange={e => setFormData({...formData, fechaNacimiento: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
-              </div>
-
-              {/* 4. Número de Documento */}
-              <div className="mb-2">
-                <label className="block text-slate-400 mb-1">4. Número de Documento: *</label>
-                <input required type="text" placeholder="Ingrese número de documento" value={formData.documento} onChange={e => setFormData({...formData, documento: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
-              </div>
-
-              {/* Campo ID adicional */}
               <div className="mb-2">
                 <label className="block text-amber-400 mb-1 font-bold">ID:</label>
                 <input type="text" placeholder="Ingrese ID" value={formData.idField} onChange={e => setFormData({...formData, idField: e.target.value})} className="w-full bg-slate-900 border border-amber-500/50 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 5. Fecha Expedición cedula */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">5. Fecha Expedición cedula:</label>
+                <label className="block text-slate-400 mb-1">Nombre Completo: *</label>
+                <input required type="text" placeholder="Ingrese nombre completo" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-slate-400 mb-1">Tipo de documento:</label>
+                <select 
+                  value={formData.tipoDoc} 
+                  onChange={e => setFormData({...formData, tipoDoc: e.target.value})} 
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold"
+                >
+                  <option value="Cédula de Ciudadanía (C.C.)">Cédula de Ciudadanía (C.C.)</option>
+                  <option value="Cédula de Extranjería (C.E.)">Cédula de Extranjería (C.E.)</option>
+                  <option value="Pasaporte Vigente">Pasaporte Vigente</option>
+                  <option value="Permiso por Protección Temporal (PPT) o PEP">Permiso por Protección Temporal (PPT) o PEP</option>
+                </select>
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-slate-400 mb-1">Número de documento: *</label>
+                <input required type="text" placeholder="Ingrese número de documento" value={formData.documento} onChange={e => setFormData({...formData, documento: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-slate-400 mb-1">Fecha Expedición cédula:</label>
                 <input type="date" value={formData.fechaExpedicion} onChange={e => setFormData({...formData, fechaExpedicion: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 6. Municipio de Expedición */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">6. Municipio de Expedición:</label>
+                <label className="block text-slate-400 mb-1">Municipio de Expedición:</label>
                 <input type="text" placeholder="Ej: Bogotá" value={formData.lugarExpedicion} onChange={e => setFormData({...formData, lugarExpedicion: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 7. Correo Electrónico */}
+              {/* DEMÁS CAMPOS RESTANTES DEL FORMULARIO */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">7. Correo Electrónico: *</label>
+                <label className="block text-slate-400 mb-1">Fecha de nacimiento:</label>
+                <input type="date" value={formData.fechaNacimiento} onChange={e => setFormData({...formData, fechaNacimiento: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-slate-400 mb-1">Correo Electrónico: *</label>
                 <input required type="email" placeholder="correo@dominio.com" value={formData.correo} onChange={e => setFormData({...formData, correo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 8. Celular */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">8. Celular: *</label>
+                <label className="block text-slate-400 mb-1">Celular: *</label>
                 <input required type="text" placeholder="3000000000" value={formData.celular} onChange={e => setFormData({...formData, celular: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 9. Dirección y Barrio de Residencia */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">9. Dirección y Barrio de Residencia:</label>
+                <label className="block text-slate-400 mb-1">Dirección y Barrio de Residencia:</label>
                 <input type="text" placeholder="Ingrese dirección y barrio" value={formData.direccion} onChange={e => setFormData({...formData, direccion: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 10. Estrato Social */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">10. Estrato Social:</label>
+                <label className="block text-slate-400 mb-1">Estrato Social:</label>
                 <input type="text" placeholder="Ej: 1, 2, 3..." value={formData.estrato} onChange={e => setFormData({...formData, estrato: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 11. EPS */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">11. EPS:</label>
+                <label className="block text-slate-400 mb-1">EPS:</label>
                 <input type="text" placeholder="Nombre de la EPS" value={formData.eps} onChange={e => setFormData({...formData, eps: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 12. Año en que presentaste el ICFES */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">12. Año en que presentaste el ICFES:</label>
+                <label className="block text-slate-400 mb-1">Año en que presentaste el ICFES:</label>
                 <input type="text" placeholder="Ej: 2012" value={formData.anioBachillerato} onChange={e => setFormData({...formData, anioBachillerato: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 13. Acudiente/Familiar de Referencia */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">13. Acudiente/Familiar de Referencia:</label>
-                <input type="text" placeholder="Parentesco o referencia" value={formData.acudienteNombre} onChange={e => setFormData({...formData, acudienteNombre: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
-              </div>
-
-              {/* 14. Nombre (Acudiente) */}
-              <div className="mb-2">
-                <label className="block text-slate-400 mb-1">14. Nombre:</label>
+                <label className="block text-slate-400 mb-1">Acudiente / Familiar / Nombre:</label>
                 <input type="text" placeholder="Nombre del familiar" value={formData.acudienteNombre} onChange={e => setFormData({...formData, acudienteNombre: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 15. Teléfono (Acudiente) */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">15. Teléfono:</label>
+                <label className="block text-slate-400 mb-1">Teléfono Acudiente:</label>
                 <input type="text" placeholder="Teléfono de referencia" value={formData.acudienteTelefono} onChange={e => setFormData({...formData, acudienteTelefono: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
               </div>
 
-              {/* 16. Electiva */}
               <div className="mb-2">
-                <label className="block text-slate-400 mb-1">16. Electiva:</label>
-                <input type="text" value={formData.electiva} onChange={e => setFormData({...formData, electiva: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" />
+                <label className="block text-slate-400 mb-1">Electiva:</label>
+                <select 
+                  value={formData.electiva} 
+                  onChange={e => setFormData({...formData, electiva: e.target.value})} 
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-semibold"
+                >
+                  <option value="Fotografía">Fotografía</option>
+                  <option value="Marketing Digital">Marketing Digital</option>
+                  <option value="La Esencia de tu Marca Personal">La Esencia de tu Marca Personal</option>
+                  <option value="Herramientas de Correo Institucional">Herramientas de Correo Institucional</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed italic">
+                  Un beneficio complementario y obligatorio en tu plan de estudios es la elección de una materia electiva autodirigida. En el Politécnico Internacional contamos con 4 opciones espectaculares para complementar tu perfil, ¡tú eliges cuál cursar cuando corresponda!
+                </p>
               </div>
             </div>
 
@@ -709,36 +767,193 @@ Obsequio: ${formData.obsequio}`;
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition shadow-lg uppercase tracking-wider text-xs"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition shadow-lg uppercase tracking-wider text-xs cursor-pointer"
             >
-              {loading ? 'Generando...' : 'Copiar a block de notas'}
+              {loading ? 'Generando y Guardando...' : 'Copiar a block de notas y guardar'}
             </button>
           </form>
         </section>
 
-        {/* COLUMNA 3: Vista Previa del Proceso Cantado Ajustada */}
+        {/* COLUMNA 3: Proceso Cantado & Módulo de Liquidación en PDF */}
         <section className="lg:col-span-3 bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl space-y-4 flex flex-col">
           <h2 className="text-base font-bold text-emerald-400 flex items-center gap-2 border-b border-slate-700 pb-2">
             📋 Proceso Cantado
           </h2>
-          <p className="text-[11px] text-slate-400">
-            Vista previa exacta del texto del proceso.
-          </p>
 
           <button 
             type="button"
             onClick={copiarAlPortapapeles}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition shadow-lg text-xs uppercase tracking-wider"
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition shadow-lg text-xs uppercase tracking-wider cursor-pointer"
           >
             Copiar texto
           </button>
 
-          <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700 font-mono text-[11px] text-slate-200 whitespace-pre-wrap h-fit">
+          <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-700 font-mono text-[11px] text-slate-200 whitespace-pre-wrap h-fit max-h-[320px] overflow-y-auto">
             {construirTextoProceso()}
+          </div>
+
+          <div className="border-t border-slate-700 pt-3 space-y-2">
+            <span className="text-xs font-bold text-amber-400 uppercase block">📄 Liquidación Oficial (Formato PDF)</span>
+            
+            <button 
+              type="button"
+              onClick={() => setMostrarModalLiquidacion(true)}
+              className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-2.5 rounded-xl transition shadow-lg text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>👁️</span> Previsualizar Liquidación PDF
+            </button>
+
+            <button 
+              type="button"
+              onClick={descargarPDFLiquidacion}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition shadow-lg text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>📥</span> Descargar Liquidación en PDF
+            </button>
           </div>
         </section>
 
       </main>
+
+      {/* MODAL DE PREVISUALIZACIÓN DE LA LIQUIDACIÓN OFICIAL (PI-GA-FT-036) */}
+      {mostrarModalLiquidacion && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white text-slate-900 rounded-2xl max-w-3xl w-full p-6 relative shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => setMostrarModalLiquidacion(false)}
+              className="absolute top-4 right-4 bg-slate-200 hover:bg-red-500 hover:text-white text-slate-700 font-bold px-3 py-1 rounded-full transition text-xs cursor-pointer"
+            >
+              ✕ Cerrar
+            </button>
+
+            {/* DOCUMENTO OFICIAL INSTITUCIONAL PARA PDF */}
+            <div ref={documentoRef} className="bg-white p-6 space-y-4 text-xs font-sans border border-slate-300">
+              <div className="border-b-2 border-blue-900 pb-3 flex justify-between items-center">
+                <div>
+                  <h3 className="font-extrabold text-blue-900 text-sm">POLITÉCNICO INTERNACIONAL</h3>
+                  <p className="text-[9px] text-slate-600">Institución de Educación Superior, Aprobada por el Ministerio de Educación Nacional</p>
+                  <p className="text-[9px] text-slate-600">Res. No. 17607 del 1 Sept. de 2017[cite: 8]</p>
+                </div>
+                <div className="text-right">
+                  <span className="font-bold text-[10px] text-blue-900 block">Código: PI-GA-FT-036[cite: 8]</span>
+                  <span className="text-[9px] text-slate-500 block">Versión: 03 (07/11/2024)[cite: 8]</span>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 p-2 rounded text-center text-blue-900 font-bold text-[11px]">
+                ¡En el Politécnico Internacional tenemos las mejores opciones para que puedas estudiar![cite: 8]
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 border border-slate-300 p-3 rounded bg-slate-50">
+                <div><strong>Programa:</strong> {prog.nombre}</div>
+                <div><strong>Sede:</strong> {formData.sede}</div>
+                <div><strong>ID:</strong> {formData.idField || '---'}</div>
+                <div><strong>Nombre completo:</strong> {formData.nombres || '---'}</div>
+                <div><strong>Tipo de documento:</strong> {formData.tipoDoc}</div>
+                <div><strong>Número de documento:</strong> {formData.documento || '---'}</div>
+                <div><strong>Modalidad de pago:</strong> {formData.medioPago}</div>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[10px] text-slate-600 italic">Corresponde al valor del plan de financiación según la jornada elegida por el aspirante[cite: 8].</p>
+                
+                <table className="w-full border-collapse border border-slate-300 text-left">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700">
+                      <th className="border border-slate-300 p-2">CONCEPTO</th>
+                      <th className="border border-slate-300 p-2 text-right">VALOR</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="border border-slate-300 p-2">Valor Formulario de Admisión</td>
+                      <td className="border border-slate-300 p-2 text-right font-semibold text-emerald-600">OBSEQUIO[cite: 8]</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2">Valor Total PRIMER Ciclo (13 semanas)</td>
+                      <td className="border border-slate-300 p-2 text-right font-bold">${liquidacion.pensionCalculada.toLocaleString('es-CO')}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2">Carné Estudiantil</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.carnet.toLocaleString('es-CO')}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2">Seguro Estudiantil</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.seguro.toLocaleString('es-CO')}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2">Estudio de Crédito</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.estudioCredito.toLocaleString('es-CO')}</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2">Primera Cuota del Plan (30%)</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.cuota1Pasion.toLocaleString('es-CO')}</td>
+                    </tr>
+                    <tr className="bg-emerald-50 font-bold text-emerald-900">
+                      <td className="border border-slate-300 p-2">TOTAL, PRIMER PAGO</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.totalInicialMatricula.toLocaleString('es-CO')}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-1">
+                <h4 className="font-bold text-slate-700 text-[11px]">FECHAS PAGO PRÓXIMAS CUOTAS</h4>
+                <table className="w-full border-collapse border border-slate-300 text-left">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700">
+                      <th className="border border-slate-300 p-2">CUOTA</th>
+                      <th className="border border-slate-300 p-2 text-right">VALOR</th>
+                      <th className="border border-slate-300 p-2 text-center">FECHA PRÓXIMO PAGO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="border border-slate-300 p-2">2DA. CUOTA (40%)</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.cuota2Pasion.toLocaleString('es-CO')}</td>
+                      <td className="border border-slate-300 p-2 text-center">04/11/2026</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2">3RA. CUOTA (30%)</td>
+                      <td className="border border-slate-300 p-2 text-right">${liquidacion.cuota3Pasion.toLocaleString('es-CO')}</td>
+                      <td className="border border-slate-300 p-2 text-center">03/12/2026</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-t border-slate-300 pt-3 text-[10px]">
+                <div>
+                  <p><strong>Nombre Asesor responsable:</strong> {asesor}</p>
+                  <p><strong>Campaña:</strong> {campaña || '---'}</p>
+                </div>
+                <div>
+                  <p><strong>Modalidad:</strong> {formData.sede}</p>
+                </div>
+              </div>
+
+              <p className="text-[8px] text-slate-500 italic text-justify">
+                DECLARACIÓN: Con el diligenciamiento de este formato, el aspirante declara conocer y aceptar: El contenido del Reglamento Estudiantil, específicamente las disposiciones relacionadas con matrículas, requisitos de admisión, condiciones para la cancelación de créditos y devolución de dinero[cite: 8]...
+              </p>
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <button 
+                  onClick={() => setMostrarModalLiquidacion(false)}
+                  className="px-4 py-2 bg-slate-300 text-slate-800 rounded font-bold cursor-pointer"
+                >
+                  Cerrar
+                </button>
+                <button 
+                  onClick={descargarPDFLiquidacion}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded font-bold cursor-pointer"
+                >
+                  Imprimir / Guardar PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
